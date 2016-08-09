@@ -5,39 +5,31 @@ import android.app.KeyguardManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.hardware.Camera;
+import android.hardware.Camera.PictureCallback;
 import android.hardware.Sensor;
+import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
-import android.os.Bundle;
-import android.os.PowerManager;
-import android.util.Log;
-import android.view.View;
-import android.widget.TextView;
-import android.app.Activity;
-import android.content.Context;
-import android.hardware.Camera;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Environment;
-import android.util.Log;
+import android.os.PowerManager;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Timer;
 import java.util.TimerTask;
-import android.hardware.Camera;
-import android.util.Log;
-import com.traffar.meimeime.Main;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
 
 
 public class Main extends Activity
@@ -72,18 +64,19 @@ public class Main extends Activity
                      Float.valueOf(event.values[0]),
                      Float.valueOf(event.values[1]),
                      Float.valueOf(event.values[2])));
-            if (this.motionDetected == 0 && Math.sqrt(x * x + y * y) > 10.0)
+            if (motionDetected == 0 && Math.sqrt(x * x + y * y) > 10.0)
             {
                this.motionDetected = 15;
                Main.this.view2.setText((CharSequence)"");
                Main.this.wakeDevice();
             }
-            if (this.motionDetected != 0)
+            if (motionDetected != 0)
             {
-               this.latestValues[15 - this.motionDetected][0] = event.values[0];
-               this.latestValues[15 - this.motionDetected][1] = event.values[1];
-               this.latestValues[15 - this.motionDetected][2] = event.values[2];
-               if (t - this.lastTime < 100) {
+               latestValues[15 - motionDetected][0] = event.values[0];
+               latestValues[15 - motionDetected][1] = event.values[1];
+               latestValues[15 - motionDetected][2] = event.values[2];
+               if (t - lastTime < 100)
+               {
                   return;
                }
                Main.this.view2.append((CharSequence)String.format("%d %.1f, %.1f, %.1f\n",
@@ -92,8 +85,7 @@ public class Main extends Activity
                         Float.valueOf(event.values[1]),
                         Float.valueOf(event.values[2])));
 
-               --this.motionDetected;
-               if (this.motionDetected == 0)
+               if (--motionDetected == 0)
                {
                   analyzer.go(this.latestValues);
                }
@@ -106,40 +98,41 @@ public class Main extends Activity
    public void onCreate(Bundle savedInstanceState)
    {
       super.onCreate(savedInstanceState);
-      this.setContentView(2130903041);
-      this.sensorManager = (SensorManager)this.getSystemService("sensor");
-      this.accel = this.sensorManager.getDefaultSensor(10);
-      this.sensorManager.registerListener(this.accelListner, this.accel, 3);
-      this.view1 = (TextView)this.findViewById(2131165186);
-      this.view2 = (TextView)this.findViewById(2131165187);
-      this.cam = new CameraCtl(this, (Activity)this);
-      this.analyzer = new Analyzer(this, this);
-      this.createWakeLocks();
+      setContentView(R.layout.main);
+      sensorManager = (SensorManager)this.getSystemService("sensor");
+      accel = this.sensorManager.getDefaultSensor(10);
+      sensorManager.registerListener(this.accelListner, this.accel, 3);
+      view1 = (TextView)this.findViewById(R.id.view1);
+      view2 = (TextView)this.findViewById(R.id.view2);
+      cam = new CameraCtl(this);
+      analyzer = new Analyzer(this);
+      createWakeLocks();
    }
 
    protected void createWakeLocks()
    {
       PowerManager powerManager = (PowerManager)this.getSystemService("power");
-      this.fullWakeLock = powerManager.newWakeLock(268435482, "MeiMeiMe - FULL WAKE LOCK");
-      this.partialWakeLock = powerManager.newWakeLock(1, "MeiMeiMe - PARTIAL WAKE LOCK");
+      this.fullWakeLock = powerManager.newWakeLock(PowerManager.FULL_WAKE_LOCK, "MeiMeiMe - FULL WAKE LOCK");
+      this.partialWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MeiMeiMe - PARTIAL WAKE LOCK");
    }
 
    protected void onPause()
    {
       super.onPause();
-      this.partialWakeLock.acquire();
+      partialWakeLock.acquire();
+      cam.release();
    }
 
    protected void onResume()
    {
       super.onResume();
-      if (this.fullWakeLock.isHeld())
+      if (fullWakeLock.isHeld())
       {
-         this.fullWakeLock.release();
+         fullWakeLock.release();
       }
-      if (this.partialWakeLock.isHeld())
+      if (partialWakeLock.isHeld())
       {
-         this.partialWakeLock.release();
+         partialWakeLock.release();
       }
    }
 
@@ -149,14 +142,16 @@ public class Main extends Activity
       KeyguardManager keyguardManager = (KeyguardManager)this.getSystemService("keyguard");
       KeyguardManager.KeyguardLock keyguardLock = keyguardManager.newKeyguardLock("TAG");
       keyguardLock.disableKeyguard();
-      Log.d((String)"MeiMeiMe", (String)"====Bringging Application to Front====");
+      Log.d(TAG, "====Bringging Application to Front====");
       Intent notificationIntent = new Intent((Context)this, (Class)Main.class);
-      notificationIntent.setFlags(603979776);
-      PendingIntent pendingIntent = PendingIntent.getActivity((Context)this, (int)0, (Intent)notificationIntent, (int)0);
-      try {
+      notificationIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+      PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
+      try
+      {
          pendingIntent.send();
       }
-      catch (PendingIntent.CanceledException e) {
+      catch (PendingIntent.CanceledException e)
+      {
          e.printStackTrace();
       }
    }
@@ -170,31 +165,43 @@ public class Main extends Activity
       public static final int MEDIA_TYPE_IMAGE = 1;
       public static final int MEDIA_TYPE_VIDEO = 2;
       private Camera c;
-      private Camera.PictureCallback mPicture;
+      private PictureCallback mPicture;
 
       CameraCtl(Activity a)
       {
          this.activity = a;
-         this.mPicture = new CameraCtl.PictureCallback()
+         this.mPicture = new PictureCallback()
          {
-            public void onPictureTaken(byte[] data, Camera camera) {
+            public void onPictureTaken(byte[] data, Camera camera)
+            {
                File pictureFile = CameraCtl.this.getOutputMediaFile(1);
-               try {
-                  Log.d((String)"MeiMeiMe", (String)("CALLBACK:" + pictureFile));
+               try
+               {
+                  Log.d(TAG, ("CALLBACK:" + pictureFile));
                   FileOutputStream fos = new FileOutputStream(pictureFile);
                   fos.write(data);
                   fos.close();
-                  CameraCtl.this.c.stopPreview();
-                  CameraCtl.this.c.release();
+                  camera.stopPreview();
+                  camera.release();
                }
-               catch (FileNotFoundException e) {
-                  Log.d((String)"MeiMeiMe", (String)("File not found: " + e.getMessage()));
+               catch (FileNotFoundException e)
+               {
+                  Log.d(TAG, ("File not found: " + e.getMessage()));
                }
-               catch (IOException e) {
-                  Log.d((String)"MeiMeiMe", (String)("Error accessing file: " + e.getMessage()));
+               catch (IOException e)
+               {
+                  Log.d(TAG, ("Error accessing file: " + e.getMessage()));
                }
             }
          };
+      }
+
+      void release()
+      {
+         if (c != null)
+         {
+            c.release();
+         }
       }
 
       private Uri getOutputMediaFileUri(int type)
@@ -205,36 +212,37 @@ public class Main extends Activity
       private File getOutputMediaFile(int type)
       {
          File mediaFile;
-         Log.d((String)"MeiMeiMe", (String)"getOutputMediaFile");
-         File mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory((String)Environment.DIRECTORY_PICTURES), "MeiMeiMe");
-         Log.d((String)"MeiMeiMe", (String)("storage:" + mediaStorageDir));
-         if (!mediaStorageDir.exists() && !mediaStorageDir.mkdirs()) {
-            Log.d((String)"MeiMeiMe", (String)"failed to create directory");
+         Log.d(TAG, "getOutputMediaFile");
+         File mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), TAG);
+         Log.d(TAG, ("storage:" + mediaStorageDir));
+         if (!mediaStorageDir.exists() && !mediaStorageDir.mkdirs())
+         {
+            Log.d(TAG, "failed to create directory");
             return null;
          }
          String timeStamp = new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date());
-         if (type == 1) {
+         if (type == 1)
+         {
             mediaFile = new File(mediaStorageDir.getPath() + File.separator + "IMG_" + timeStamp + ".jpg");
          } else if (type == 2) {
             mediaFile = new File(mediaStorageDir.getPath() + File.separator + "VID_" + timeStamp + ".mp4");
          } else {
             return null;
          }
-         Log.d((String)"MeiMeiMe", (String)("Media File" + mediaFile));
+         Log.d(TAG, ("Media File" + mediaFile));
          return mediaFile;
       }
 
       public void takePhoto()
       {
-         this.c = Camera.open();
-         Log.d((String)"MeiMeiMe", (String)("CAM OPENED" + (Object)this.c));
-         this.preview = (FrameLayout)Main.this.findViewById(2131165184);
-         this.mPreview = new CameraPreview(this, (Context)this.activity, this.c);
-         this.preview.addView((View)this.mPreview);
-         this.timer = new Timer();
-         Log.d((String)"MeiMeiMe", (String)"TAKE PHOTO");
-         this.c.startPreview();
-         this.timer.schedule((TimerTask)new TakePhotoTask(this, this.c), 1000);
+         c = Camera.open();
+         Log.d(TAG, ("CAM OPENED" + (Object)this.c));
+         preview = (FrameLayout)findViewById(R.id.camera_preview);
+         mPreview = new CameraPreview(activity, c);
+         preview.addView((View)this.mPreview);
+         timer = new Timer();
+         Log.d(TAG, "TAKE PHOTO");
+         timer.schedule(new TakePhotoTask(c), 1000);
       }
 
       public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
@@ -245,44 +253,53 @@ public class Main extends Activity
          public CameraPreview(Context context, Camera camera)
          {
             super(context);
-            this.mCamera = camera;
-            Log.d((String)"MeiMeiMe", (String)"CameraPreview");
-            this.mHolder = this.getHolder();
-            this.mHolder.addCallback((SurfaceHolder.Callback)this);
-            this.mHolder.setType(3);
+            mCamera = camera;
+            mHolder = getHolder();
+            mHolder.addCallback(this);
+            mHolder.setType(SurfaceHolder.SURFACE_TYPE_PUSH_BUFFERS);
          }
 
-         public void surfaceCreated(SurfaceHolder holder) {
-            try {
-               Log.d((String)"MeiMeiMe", (String)"SURFACE created");
-               this.mCamera.setPreviewDisplay(holder);
-               Log.d((String)"MeiMeiMe", (String)"preview started");
+         public void surfaceCreated(SurfaceHolder holder)
+         {
+            try
+            {
+               Log.d(TAG, "SURFACE created");
+               mCamera.setPreviewDisplay(holder);
+               mCamera.startPreview();
             }
-            catch (IOException e) {
-               Log.d((String)"MeiMeiMe", (String)("Error setting camera preview: " + e.getMessage()));
+            catch (IOException e)
+            {
+               Log.d(TAG, ("Error setting camera preview: " + e.getMessage()));
             }
          }
 
-         public void surfaceDestroyed(SurfaceHolder holder) {
-            Log.d((String)"MeiMeiMe", (String)"surface destroyed");
+         public void surfaceDestroyed(SurfaceHolder holder)
+         {
+            Log.d(TAG, "surface destroyed");
          }
 
-         public void surfaceChanged(SurfaceHolder holder, int format, int w, int h) {
-            Log.d((String)"MeiMeiMe", (String)"SURFACE CREATED");
-            if (this.mHolder.getSurface() == null) {
+         public void surfaceChanged(SurfaceHolder holder, int format, int w, int h)
+         {
+            Log.d(TAG, "surface changed");
+            if (this.mHolder.getSurface() == null)
+            {
                return;
             }
-            try {
+            try
+            {
                this.mCamera.stopPreview();
             }
-            catch (Exception var5_5) {
+            catch (Exception e)
+            {
                // empty catch block
             }
-            try {
+            try
+            {
                this.mCamera.setPreviewDisplay(this.mHolder);
             }
-            catch (Exception e) {
-               Log.d((String)"MeiMeiMe", (String)("Error starting camera preview: " + e.getMessage()));
+            catch (Exception e)
+            {
+               Log.d(TAG, ("Error starting camera preview: " + e.getMessage()));
             }
          }
       }
@@ -298,14 +315,14 @@ public class Main extends Activity
 
          public void run()
          {
-            this.c.takePicture(null, null, CameraCtl.this.mPicture);
+            c.takePicture(null, null, mPicture);
          }
       }
    }
 
-
    public class Analyzer
    {
+      public Main main;
       Analyzer(Main a)
       {
          main = a;
