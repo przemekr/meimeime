@@ -3,6 +3,7 @@ package com.traffar.meimeime;
 import android.app.Activity;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
+import android.view.WindowManager;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.Camera;
@@ -11,6 +12,10 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+
+import android.media.SoundPool;
+import android.media.AudioManager;
+
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -28,8 +33,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Timer;
 import java.util.TimerTask;
+
 
 
 public class Main extends Activity
@@ -50,9 +57,10 @@ public class Main extends Activity
       accelListner = new SensorEventListener()
       {
          public int motionDetected = 0;
+         public int beepRate = 6;
          public long lastTime = 0;
-         private static final int DATAPOINTS = 15;
-         float[][] latestValues = new float[15][3];
+         private static final int DATAPOINTS = 30;
+         float[][] latestValues = new float[DATAPOINTS][3];
          public void onAccuracyChanged(Sensor sensor, int acc) { }
          public void onSensorChanged(SensorEvent event)
          {
@@ -66,15 +74,15 @@ public class Main extends Activity
                      Float.valueOf(event.values[2])));
             if (motionDetected == 0 && Math.sqrt(x * x + y * y) > 10.0)
             {
-               motionDetected = 15;
+               motionDetected = DATAPOINTS;
                view2.setText((CharSequence)"");
                wakeDevice();
             }
             if (motionDetected != 0)
             {
-               latestValues[15 - motionDetected][0] = event.values[0];
-               latestValues[15 - motionDetected][1] = event.values[1];
-               latestValues[15 - motionDetected][2] = event.values[2];
+               latestValues[DATAPOINTS - motionDetected][0] = event.values[0];
+               latestValues[DATAPOINTS - motionDetected][1] = event.values[1];
+               latestValues[DATAPOINTS - motionDetected][2] = event.values[2];
                if (t - lastTime < 150)
                {
                   return;
@@ -84,6 +92,11 @@ public class Main extends Activity
                         Float.valueOf(event.values[0]),
                         Float.valueOf(event.values[1]),
                         Float.valueOf(event.values[2])));
+
+               if (motionDetected %beepRate == 0)
+               {
+                  playSound(Beep1);
+               }
 
                if (--motionDetected == 0)
                {
@@ -109,6 +122,7 @@ public class Main extends Activity
       cam.resume();
       analyzer = new Analyzer();
       createWakeLocks();
+      initSounds();
    }
 
    protected void createWakeLocks()
@@ -154,9 +168,8 @@ public class Main extends Activity
       fullWakeLock.acquire();
 
       Log.d(TAG, "==== disable keyguard ====");
-      KeyguardManager keyguardManager = (KeyguardManager)getSystemService("keyguard");
-      KeyguardManager.KeyguardLock keyguardLock = keyguardManager.newKeyguardLock("TAG");
-      keyguardLock.disableKeyguard();
+      getWindow().addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+            | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
 
       Log.d(TAG, "==== bringging application to front ====");
       Intent notificationIntent = new Intent(this, Main.class);
@@ -232,6 +245,7 @@ public class Main extends Activity
          if (c == null)
          {
             c = Camera.open();
+            //c.setDisplayOrientation(90);
             Log.d(TAG, ("CAM OPENED:" + c));
          }
          cameraPreview = new CameraPreview(activity, c);
@@ -247,6 +261,12 @@ public class Main extends Activity
             c.release();
             c = null;
             Log.d(TAG, "CAM RELEASE");
+         }
+         if (cameraPreview != null)
+         {
+            cameraPreview.removeCallback();
+            cameraPreview = null;
+            Log.d(TAG, "CAM PREVIEW RELEASE");
          }
       }
 
@@ -323,6 +343,10 @@ public class Main extends Activity
          public void surfaceDestroyed(SurfaceHolder holder)
          {
             Log.d(TAG, "surface destroyed");
+         }
+
+         public void removeCallback()
+         {
             mHolder.removeCallback(this);
          }
 
@@ -374,7 +398,33 @@ public class Main extends Activity
    {
       public void go(float[][] values)
       {
+         playSound(Beep2);
          cam.takePhoto();
       }
+   }
+
+   private SoundPool soundPool;
+   public int Beep1;
+   public int Beep2;
+
+   /** Populate the SoundPool*/
+   public void initSounds()
+   {
+      soundPool = new SoundPool(2, AudioManager.STREAM_MUSIC, 100);
+      Beep1 = soundPool.load(this, R.raw.beep1, 1);
+      Beep2 = soundPool.load(this, R.raw.beep2, 1);
+   }
+
+   /** Play a given sound in the soundPool */
+   public void playSound(int soundID)
+   {
+      if (soundPool == null)
+      {
+         initSounds();
+      }
+      float volume = (float)0.5;
+      // play sound with same right and left volume, with a priority of 1, 
+      // zero repeats (i.e play once), and a playback rate of 1f
+      soundPool.play(soundID, volume, volume, 1, 0, 1f);
    }
 }
