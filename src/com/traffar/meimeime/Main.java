@@ -60,37 +60,37 @@ public class Main extends Activity
             float y = event.values[1];
             float z = event.values[2];
             long t = System.currentTimeMillis();
-            Main.this.view1.setText((CharSequence)String.format("%d %.1f, %.1f, %.1f\n", (int)(t - this.lastTime),
+            view1.setText((CharSequence)String.format("%d %.1f, %.1f, %.1f\n", (int)(t - lastTime),
                      Float.valueOf(event.values[0]),
                      Float.valueOf(event.values[1]),
                      Float.valueOf(event.values[2])));
             if (motionDetected == 0 && Math.sqrt(x * x + y * y) > 10.0)
             {
-               this.motionDetected = 15;
-               Main.this.view2.setText((CharSequence)"");
-               Main.this.wakeDevice();
+               motionDetected = 15;
+               view2.setText((CharSequence)"");
+               wakeDevice();
             }
             if (motionDetected != 0)
             {
                latestValues[15 - motionDetected][0] = event.values[0];
                latestValues[15 - motionDetected][1] = event.values[1];
                latestValues[15 - motionDetected][2] = event.values[2];
-               if (t - lastTime < 100)
+               if (t - lastTime < 150)
                {
                   return;
                }
-               Main.this.view2.append((CharSequence)String.format("%d %.1f, %.1f, %.1f\n",
-                        (int)(t - this.lastTime),
+               view2.append((CharSequence)String.format("%d %.1f, %.1f, %.1f\n",
+                        (int)(t - lastTime),
                         Float.valueOf(event.values[0]),
                         Float.valueOf(event.values[1]),
                         Float.valueOf(event.values[2])));
 
                if (--motionDetected == 0)
                {
-                  analyzer.go(this.latestValues);
+                  analyzer.go(latestValues);
                }
             }
-            this.lastTime = t;
+            lastTime = t;
          }
       };
    }
@@ -99,28 +99,34 @@ public class Main extends Activity
    {
       super.onCreate(savedInstanceState);
       setContentView(R.layout.main);
-      sensorManager = (SensorManager)this.getSystemService("sensor");
-      accel = this.sensorManager.getDefaultSensor(10);
-      sensorManager.registerListener(this.accelListner, this.accel, 3);
-      view1 = (TextView)this.findViewById(R.id.view1);
-      view2 = (TextView)this.findViewById(R.id.view2);
+      sensorManager = (SensorManager)getSystemService("sensor");
+      accel = sensorManager.getDefaultSensor(10);
+      sensorManager.registerListener(accelListner, accel,
+            SensorManager.SENSOR_DELAY_NORMAL);
+      view1 = (TextView)findViewById(R.id.view1);
+      view2 = (TextView)findViewById(R.id.view2);
       cam = new CameraCtl(this);
-      analyzer = new Analyzer(this);
+      cam.resume();
+      analyzer = new Analyzer();
       createWakeLocks();
    }
 
    protected void createWakeLocks()
    {
-      PowerManager powerManager = (PowerManager)this.getSystemService("power");
-      this.fullWakeLock = powerManager.newWakeLock(PowerManager.FULL_WAKE_LOCK, "MeiMeiMe - FULL WAKE LOCK");
-      this.partialWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MeiMeiMe - PARTIAL WAKE LOCK");
+      PowerManager powerManager = (PowerManager)getSystemService("power");
+      fullWakeLock = powerManager.newWakeLock(PowerManager.FULL_WAKE_LOCK
+            | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "MeiMeiMe - FULL WAKE LOCK");
+      partialWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
+            "MeiMeiMe - PARTIAL WAKE LOCK");
+      Log.d(TAG, "Created wake locks");
    }
 
    protected void onPause()
    {
       super.onPause();
-      partialWakeLock.acquire();
       cam.release();
+      partialWakeLock.acquire();
    }
 
    protected void onResume()
@@ -134,17 +140,27 @@ public class Main extends Activity
       {
          partialWakeLock.release();
       }
+      cam.resume();
    }
 
    public void wakeDevice()
    {
-      this.fullWakeLock.acquire();
-      KeyguardManager keyguardManager = (KeyguardManager)this.getSystemService("keyguard");
+      if (cam.active())
+      {
+         cam.startPreview();
+         return;
+      }
+      Log.d(TAG, "==== acquire full wake lock ====");
+      fullWakeLock.acquire();
+
+      Log.d(TAG, "==== disable keyguard ====");
+      KeyguardManager keyguardManager = (KeyguardManager)getSystemService("keyguard");
       KeyguardManager.KeyguardLock keyguardLock = keyguardManager.newKeyguardLock("TAG");
       keyguardLock.disableKeyguard();
-      Log.d(TAG, "====Bringging Application to Front====");
-      Intent notificationIntent = new Intent((Context)this, (Class)Main.class);
-      notificationIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+      Log.d(TAG, "==== bringging application to front ====");
+      Intent notificationIntent = new Intent(this, Main.class);
+      notificationIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
       PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, 0);
       try
       {
@@ -160,8 +176,8 @@ public class Main extends Activity
    {
       private Timer timer;
       private Activity activity;
-      private CameraPreview mPreview;
-      private FrameLayout preview;
+      private CameraPreview cameraPreview;
+      private FrameLayout frameLayout;
       public static final int MEDIA_TYPE_IMAGE = 1;
       public static final int MEDIA_TYPE_VIDEO = 2;
       private Camera c;
@@ -169,12 +185,12 @@ public class Main extends Activity
 
       CameraCtl(Activity a)
       {
-         this.activity = a;
-         this.mPicture = new PictureCallback()
+         activity = a;
+         mPicture = new PictureCallback()
          {
             public void onPictureTaken(byte[] data, Camera camera)
             {
-               File pictureFile = CameraCtl.this.getOutputMediaFile(1);
+               File pictureFile = getOutputMediaFile(1);
                try
                {
                   Log.d(TAG, ("CALLBACK:" + pictureFile));
@@ -182,7 +198,6 @@ public class Main extends Activity
                   fos.write(data);
                   fos.close();
                   camera.stopPreview();
-                  camera.release();
                }
                catch (FileNotFoundException e)
                {
@@ -196,24 +211,57 @@ public class Main extends Activity
          };
       }
 
+      void startPreview()
+      {
+         if (c == null)
+         {
+            resume();
+         } else {
+            c.startPreview();
+         }
+      }
+
+      boolean active()
+      {
+         return (c != null);
+      }
+
+      void resume()
+      {
+         Log.d(TAG, ("CAMCTL RESUME"));
+         if (c == null)
+         {
+            c = Camera.open();
+            Log.d(TAG, ("CAM OPENED:" + c));
+         }
+         cameraPreview = new CameraPreview(activity, c);
+         frameLayout = (FrameLayout)findViewById(R.id.camera_preview);
+         frameLayout.removeAllViews();
+         frameLayout.addView((View)cameraPreview);
+      }
+
       void release()
       {
          if (c != null)
          {
             c.release();
+            c = null;
+            Log.d(TAG, "CAM RELEASE");
          }
       }
 
       private Uri getOutputMediaFileUri(int type)
       {
-         return Uri.fromFile((File)this.getOutputMediaFile(type));
+         return Uri.fromFile(getOutputMediaFile(type));
       }
 
       private File getOutputMediaFile(int type)
       {
          File mediaFile;
          Log.d(TAG, "getOutputMediaFile");
-         File mediaStorageDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), TAG);
+         File mediaStorageDir = new File(
+               Environment.getExternalStoragePublicDirectory(
+                  Environment.DIRECTORY_PICTURES), TAG);
          Log.d(TAG, ("storage:" + mediaStorageDir));
          if (!mediaStorageDir.exists() && !mediaStorageDir.mkdirs())
          {
@@ -235,14 +283,13 @@ public class Main extends Activity
 
       public void takePhoto()
       {
-         c = Camera.open();
-         Log.d(TAG, ("CAM OPENED" + (Object)this.c));
-         preview = (FrameLayout)findViewById(R.id.camera_preview);
-         mPreview = new CameraPreview(activity, c);
-         preview.addView((View)this.mPreview);
-         timer = new Timer();
          Log.d(TAG, "TAKE PHOTO");
-         timer.schedule(new TakePhotoTask(c), 1000);
+         if (c == null)
+         {
+            Log.d(TAG, "TAKE PHOTO: camera null!");
+            return;
+         }
+         c.takePicture(null, null, mPicture);
       }
 
       public class CameraPreview extends SurfaceView implements SurfaceHolder.Callback
@@ -276,26 +323,29 @@ public class Main extends Activity
          public void surfaceDestroyed(SurfaceHolder holder)
          {
             Log.d(TAG, "surface destroyed");
+            mHolder.removeCallback(this);
          }
 
          public void surfaceChanged(SurfaceHolder holder, int format, int w, int h)
          {
             Log.d(TAG, "surface changed");
-            if (this.mHolder.getSurface() == null)
+            if (mHolder.getSurface() == null)
             {
+               Log.d(TAG, "surface changed, getSurface() == NULL!!!!");
                return;
             }
             try
             {
-               this.mCamera.stopPreview();
+               mCamera.stopPreview();
             }
             catch (Exception e)
             {
-               // empty catch block
+               Log.d(TAG, ("Error stoping camera preview: " + e.getMessage()));
             }
             try
             {
-               this.mCamera.setPreviewDisplay(this.mHolder);
+               mCamera.setPreviewDisplay(mHolder);
+               mCamera.startPreview();
             }
             catch (Exception e)
             {
@@ -322,15 +372,9 @@ public class Main extends Activity
 
    public class Analyzer
    {
-      public Main main;
-      Analyzer(Main a)
-      {
-         main = a;
-      }
-
       public void go(float[][] values)
       {
-         main.cam.takePhoto();
+         cam.takePhoto();
       }
    }
 }
