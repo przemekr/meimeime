@@ -12,6 +12,9 @@ import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.BitmapFactory.Options;
 
 import android.media.SoundPool;
 import android.media.AudioManager;
@@ -27,16 +30,13 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.FrameLayout;
 import android.widget.TextView;
+import android.widget.ImageView;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Timer;
-import java.util.TimerTask;
-
 
 
 public class Main extends Activity
@@ -57,9 +57,11 @@ public class Main extends Activity
       accelListner = new SensorEventListener()
       {
          public int motionDetected = 0;
+         public int initialHighAccel = 0;
+         public int finalStady = 0;
          public int beepRate = 6;
          public long lastTime = 0;
-         private static final int DATAPOINTS = 30;
+         private static final int DATAPOINTS = 20;
          float[][] latestValues = new float[DATAPOINTS][3];
          public void onAccuracyChanged(Sensor sensor, int acc) { }
          public void onSensorChanged(SensorEvent event)
@@ -72,11 +74,12 @@ public class Main extends Activity
                      Float.valueOf(event.values[0]),
                      Float.valueOf(event.values[1]),
                      Float.valueOf(event.values[2])));
-            if (motionDetected == 0 && Math.sqrt(x * x + y * y) > 10.0)
+            if (motionDetected == 0 && Math.sqrt(x*x + y*y) > 15.0)
             {
                motionDetected = DATAPOINTS;
                view2.setText((CharSequence)"");
-               wakeDevice();
+               finalStady = 0;
+               initialHighAccel = 0;
             }
             if (motionDetected != 0)
             {
@@ -98,8 +101,26 @@ public class Main extends Activity
                   playSound(Beep1);
                }
 
-               if (--motionDetected == 0)
+               if (20-motionDetected < 3 && Math.sqrt(x*x + y*y) > 10.0)
                {
+                  initialHighAccel++;
+               }
+               if (20-motionDetected == 3 && initialHighAccel <= 1)
+               {
+                  motionDetected = 0;
+                  return;
+               } else {
+                  wakeDevice();
+               }
+
+               if (motionDetected < 5 && Math.sqrt(x*x + y*y + z*z) < 4.0)
+               {
+                  finalStady++;
+               }
+
+               if (--motionDetected == 0 && finalStady > 3)
+               {
+                  playSound(Shutter);
                   analyzer.go(latestValues);
                }
             }
@@ -187,7 +208,6 @@ public class Main extends Activity
 
    public class CameraCtl
    {
-      private Timer timer;
       private Activity activity;
       private CameraPreview cameraPreview;
       private FrameLayout frameLayout;
@@ -195,10 +215,12 @@ public class Main extends Activity
       public static final int MEDIA_TYPE_VIDEO = 2;
       private Camera c;
       private PictureCallback mPicture;
+      private int currentThumb;
 
       CameraCtl(Activity a)
       {
          activity = a;
+         currentThumb = 0;
          mPicture = new PictureCallback()
          {
             public void onPictureTaken(byte[] data, Camera camera)
@@ -210,7 +232,6 @@ public class Main extends Activity
                   FileOutputStream fos = new FileOutputStream(pictureFile);
                   fos.write(data);
                   fos.close();
-                  camera.stopPreview();
                }
                catch (FileNotFoundException e)
                {
@@ -220,6 +241,23 @@ public class Main extends Activity
                {
                   Log.d(TAG, ("Error accessing file: " + e.getMessage()));
                }
+
+               ImageView iv;
+               switch (currentThumb++)
+               {
+                  case 0:
+                     iv = (ImageView)findViewById(R.id.imageView1);
+                     break;
+                  case 1:
+                     iv = (ImageView)findViewById(R.id.imageView2);
+                     break;
+                  case 2:
+                  default:
+                     iv = (ImageView)findViewById(R.id.imageView3);
+                     break;
+               }
+               iv.setImageBitmap(getScaledBitmap(pictureFile.getPath(), 400, 600));
+               camera.startPreview();
             }
          };
       }
@@ -245,7 +283,7 @@ public class Main extends Activity
          if (c == null)
          {
             c = Camera.open();
-            //c.setDisplayOrientation(90);
+            c.setDisplayOrientation(90);
             Log.d(TAG, ("CAM OPENED:" + c));
          }
          cameraPreview = new CameraPreview(activity, c);
@@ -377,42 +415,26 @@ public class Main extends Activity
             }
          }
       }
-
-      public class TakePhotoTask extends TimerTask
-      {
-         private Camera c;
-
-         TakePhotoTask(Camera c)
-         {
-            this.c = c;
-         }
-
-         public void run()
-         {
-            c.takePicture(null, null, mPicture);
-         }
-      }
    }
 
    public class Analyzer
    {
       public void go(float[][] values)
       {
-         playSound(Beep2);
          cam.takePhoto();
       }
    }
 
    private SoundPool soundPool;
    public int Beep1;
-   public int Beep2;
+   public int Shutter;
 
    /** Populate the SoundPool*/
    public void initSounds()
    {
       soundPool = new SoundPool(2, AudioManager.STREAM_MUSIC, 100);
       Beep1 = soundPool.load(this, R.raw.beep1, 1);
-      Beep2 = soundPool.load(this, R.raw.beep2, 1);
+      Shutter = soundPool.load(this, R.raw.shutter, 1);
    }
 
    /** Play a given sound in the soundPool */
@@ -426,5 +448,38 @@ public class Main extends Activity
       // play sound with same right and left volume, with a priority of 1, 
       // zero repeats (i.e play once), and a playback rate of 1f
       soundPool.play(soundID, volume, volume, 1, 0, 1f);
+   }
+
+   private Bitmap getScaledBitmap(String picturePath, int width, int height)
+   {
+      BitmapFactory.Options sizeOptions = new BitmapFactory.Options();
+      sizeOptions.inJustDecodeBounds = true;
+      BitmapFactory.decodeFile(picturePath, sizeOptions);
+      int inSampleSize = calculateInSampleSize(sizeOptions, width, height);
+      sizeOptions.inJustDecodeBounds = false;
+      sizeOptions.inSampleSize = inSampleSize;
+      return BitmapFactory.decodeFile(picturePath, sizeOptions);
+   }
+
+   private int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight)
+   {
+      // Raw height and width of image
+      final int height = options.outHeight;
+      final int width = options.outWidth;
+      int inSampleSize = 1;
+      if (height > reqHeight || width > reqWidth)
+      {
+         // Calculate ratios of height and width to requested height and
+         // width
+         final int heightRatio = Math.round((float) height / (float) reqHeight);
+         final int widthRatio = Math.round((float) width / (float) reqWidth);
+
+         // Choose the smallest ratio as inSampleSize value, this will
+         // guarantee
+         // a final image with both dimensions larger than or equal to the
+         // requested height and width.
+         inSampleSize = heightRatio < widthRatio ? heightRatio : widthRatio;
+      }
+      return inSampleSize;
    }
 }
