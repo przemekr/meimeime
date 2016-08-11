@@ -216,6 +216,7 @@ public class Main extends Activity
       private Camera c;
       private PictureCallback mPicture;
       private int currentThumb;
+      public File pictureFile;
 
       CameraCtl(Activity a)
       {
@@ -225,7 +226,7 @@ public class Main extends Activity
          {
             public void onPictureTaken(byte[] data, Camera camera)
             {
-               File pictureFile = getOutputMediaFile(1);
+               pictureFile = getOutputMediaFile(1);
                try
                {
                   Log.d(TAG, ("CALLBACK:" + pictureFile));
@@ -243,7 +244,7 @@ public class Main extends Activity
                }
 
                ImageView iv;
-               switch (currentThumb++)
+               switch (currentThumb++%4)
                {
                   case 0:
                      iv = (ImageView)findViewById(R.id.imageView1);
@@ -252,11 +253,21 @@ public class Main extends Activity
                      iv = (ImageView)findViewById(R.id.imageView2);
                      break;
                   case 2:
-                  default:
                      iv = (ImageView)findViewById(R.id.imageView3);
                      break;
+                  default:
+                     iv = (ImageView)findViewById(R.id.imageView4);
+                     break;
                }
-               iv.setImageBitmap(getScaledBitmap(pictureFile.getPath(), 400, 600));
+               iv.setImageBitmap(getScaledBitmap(pictureFile.getPath(), 400, 300));
+               iv.setOnClickListener(new View.OnClickListener() {
+                        public void onClick(View v) {
+                           Intent intent = new Intent();
+                           intent.setAction(Intent.ACTION_VIEW);
+                           intent.setDataAndType(Uri.parse("file://" + pictureFile.getPath()), "image/*");
+                           startActivity(intent);
+                        }        
+               });
                camera.startPreview();
             }
          };
