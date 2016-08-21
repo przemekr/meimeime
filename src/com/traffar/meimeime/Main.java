@@ -3,9 +3,14 @@ package com.traffar.meimeime;
 import android.app.Activity;
 import android.app.KeyguardManager;
 import android.app.PendingIntent;
+import android.app.AlertDialog;
 import android.view.WindowManager;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
+import android.content.SharedPreferences;
 import android.hardware.Camera;
 import android.hardware.Camera.PictureCallback;
 import android.hardware.Sensor;
@@ -18,6 +23,7 @@ import android.graphics.BitmapFactory.Options;
 
 import android.media.SoundPool;
 import android.media.AudioManager;
+import android.preference.PreferenceManager;
 
 import android.net.Uri;
 import android.os.Bundle;
@@ -36,7 +42,10 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.Arrays;
 import java.util.Date;
+import java.util.Comparator;
+import java.util.HashMap;
 
 
 public class Main extends Activity
@@ -48,9 +57,12 @@ public class Main extends Activity
    private static final String TAG = "MeiMeiMe";
    public CameraCtl cam;
    public Analyzer analyzer;
-   private PowerManager.WakeLock fullWakeLock;
-   private PowerManager.WakeLock partialWakeLock;
    public SensorEventListener accelListner;
+   public HashMap<Integer, Integer> imgViewMap;
+
+   SharedPreferences mPrefs;
+   final String welcomeScreenShownPref = "welcomeScreenShown";
+
 
    public Main()
    {
@@ -59,7 +71,7 @@ public class Main extends Activity
          public int motionDetected = 0;
          public int initialHighAccel = 0;
          public int finalStady = 0;
-         public int beepRate = 6;
+         public int beepRate = 4;
          public long lastTime = 0;
          private static final int DATAPOINTS = 20;
          float[][] latestValues = new float[DATAPOINTS][3];
@@ -74,6 +86,8 @@ public class Main extends Activity
                      Float.valueOf(event.values[0]),
                      Float.valueOf(event.values[1]),
                      Float.valueOf(event.values[2])));
+            Log.d(TAG, String.format("On sensonr changed:  %.1f, %.1f, %.1f", event.values[0], event.values[1], event.values[2]));
+
             if (motionDetected == 0 && Math.sqrt(x*x + y*y) > 15.0)
             {
                motionDetected = DATAPOINTS;
@@ -101,11 +115,11 @@ public class Main extends Activity
                   playSound(Beep1);
                }
 
-               if (20-motionDetected < 3 && Math.sqrt(x*x + y*y) > 10.0)
+               if (DATAPOINTS-motionDetected < 3 && Math.sqrt(x*x + y*y) > 10.0)
                {
                   initialHighAccel++;
                }
-               if (20-motionDetected == 3 && initialHighAccel <= 1)
+               if (DATAPOINTS-motionDetected == 3 && initialHighAccel <= 1)
                {
                   motionDetected = 0;
                   return;
@@ -129,9 +143,43 @@ public class Main extends Activity
       };
    }
 
+   private void registerBroadcastReceiver()
+   {
+      final IntentFilter theFilter = new IntentFilter();
+      /** System Defined Broadcast */
+      theFilter.addAction(Intent.ACTION_SCREEN_ON);
+      theFilter.addAction(Intent.ACTION_SCREEN_OFF);
+
+      BroadcastReceiver screenOnOffReceiver = new BroadcastReceiver()
+      {
+         @Override
+         public void onReceive(Context context, Intent intent)
+         {
+            String strAction = intent.getAction();
+            if (strAction.equals(Intent.ACTION_SCREEN_OFF))
+            {
+                  Log.d(TAG, "Screen off");
+                  sensorManager = (SensorManager)getSystemService("sensor");
+                  accel = sensorManager.getDefaultSensor(10);
+                  sensorManager.unregisterListener(accelListner, accel);
+            }
+            if (strAction.equals(Intent.ACTION_SCREEN_ON))
+            {
+                  Log.d(TAG, "Screen on");
+                  sensorManager = (SensorManager)getSystemService("sensor");
+                  accel = sensorManager.getDefaultSensor(10);
+                  sensorManager.registerListener(accelListner, accel,
+                        SensorManager.SENSOR_DELAY_NORMAL);
+            }
+         }
+      };
+      getApplicationContext().registerReceiver(screenOnOffReceiver, theFilter);
+   }
+
    public void onCreate(Bundle savedInstanceState)
    {
       super.onCreate(savedInstanceState);
+      mPrefs = PreferenceManager.getDefaultSharedPreferences(this);
       setContentView(R.layout.main);
       sensorManager = (SensorManager)getSystemService("sensor");
       accel = sensorManager.getDefaultSensor(10);
@@ -142,39 +190,70 @@ public class Main extends Activity
       cam = new CameraCtl(this);
       cam.resume();
       analyzer = new Analyzer();
-      createWakeLocks();
       initSounds();
-   }
+      registerBroadcastReceiver();
 
-   protected void createWakeLocks()
-   {
-      PowerManager powerManager = (PowerManager)getSystemService("power");
-      fullWakeLock = powerManager.newWakeLock(PowerManager.FULL_WAKE_LOCK
-            | PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "MeiMeiMe - FULL WAKE LOCK");
-      partialWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK,
-            "MeiMeiMe - PARTIAL WAKE LOCK");
-      Log.d(TAG, "Created wake locks");
+      if (!mPrefs.getBoolean(welcomeScreenShownPref, false))
+      {
+         String whatsNewTitle = getResources().getString(R.string.whatsNewTitle);
+         String whatsNewText = getResources().getString(R.string.whatsNewText);
+         new AlertDialog.Builder(this).setIcon(
+               android.R.drawable.ic_dialog_alert).setTitle(whatsNewTitle).setMessage(whatsNewText).setPositiveButton(
+               R.string.ok, new DialogInterface.OnClickListener() {
+                  public void onClick(DialogInterface dialog, int which) {
+                     dialog.dismiss();
+                  }
+               }).show();
+         SharedPreferences.Editor editor = mPrefs.edit();
+         editor.putBoolean(welcomeScreenShownPref, true);
+         editor.commit();
+      }
+
+      imgViewMap = new HashMap<Integer, Integer>();
+      imgViewMap.put(1, R.id.imageView1);
+      imgViewMap.put(2, R.id.imageView2);
+      imgViewMap.put(3, R.id.imageView3);
+      imgViewMap.put(4, R.id.imageView4);
+
+      // check the latest photos
+      final File mediaStorageDir = new File(
+            Environment.getExternalStoragePublicDirectory(
+               Environment.DIRECTORY_PICTURES), TAG);
+      File[] fileList = mediaStorageDir.listFiles();
+      Arrays.sort(fileList, new Comparator<File>(){
+         public int compare(File f1, File f2) {
+            return Long.valueOf(f2.lastModified()).compareTo(f1.lastModified());
+         }});
+
+      int idx = 0;
+      for (final File file : fileList)
+      {
+         if (file.isFile() && idx++ < 4)
+         {
+            ImageView iv = (ImageView)findViewById(imgViewMap.get(idx));
+            iv.setImageBitmap(getScaledBitmap(file.getPath(), 400, 300));
+            iv.setOnClickListener(new View.OnClickListener() {
+               public void onClick(View v)
+               {
+                  Intent intent = new Intent();
+                  intent.setAction(Intent.ACTION_VIEW);
+                  intent.setDataAndType(Uri.fromFile(file), "image/*");
+                  startActivity(intent);
+               }        
+            });
+         }
+      }
    }
 
    protected void onPause()
    {
       super.onPause();
       cam.release();
-      partialWakeLock.acquire();
    }
 
    protected void onResume()
    {
       super.onResume();
-      if (fullWakeLock.isHeld())
-      {
-         fullWakeLock.release();
-      }
-      if (partialWakeLock.isHeld())
-      {
-         partialWakeLock.release();
-      }
       cam.resume();
    }
 
@@ -185,9 +264,6 @@ public class Main extends Activity
          cam.startPreview();
          return;
       }
-      Log.d(TAG, "==== acquire full wake lock ====");
-      fullWakeLock.acquire();
-
       Log.d(TAG, "==== disable keyguard ====");
       getWindow().addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
             | WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED);
@@ -243,22 +319,7 @@ public class Main extends Activity
                   Log.d(TAG, ("Error accessing file: " + e.getMessage()));
                }
 
-               ImageView iv;
-               switch (currentThumb++%4)
-               {
-                  case 0:
-                     iv = (ImageView)findViewById(R.id.imageView1);
-                     break;
-                  case 1:
-                     iv = (ImageView)findViewById(R.id.imageView2);
-                     break;
-                  case 2:
-                     iv = (ImageView)findViewById(R.id.imageView3);
-                     break;
-                  default:
-                     iv = (ImageView)findViewById(R.id.imageView4);
-                     break;
-               }
+               ImageView iv = (ImageView)findViewById(imgViewMap.get(currentThumb++%4+1));
                iv.setImageBitmap(getScaledBitmap(pictureFile.getPath(), 400, 300));
                iv.setOnClickListener(new View.OnClickListener() {
                         public void onClick(View v) {

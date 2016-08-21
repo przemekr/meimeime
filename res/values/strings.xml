@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-
     <string name="app_name">MeiMeiMe</string>
     <string name="action_settings">Settings</string>
-    <string name="hello_world">Hello world!</string>
+    <string name="whatsNewTitle">tip</string>
+    <string name="whatsNewText">
+MeiMeiMe, helps you to take cool pictures without pressing any button!\n\n
+      
+Just keep the application in background, make sure the screen is on (if
+it is not, just press the power button and wait one second), then make a
+fast, smooth move, streching your arm, then hold the phone still for two
+seconds. You should hear the countdown beep and the camera shellter when
+the picture is taken.\n\n
 
+Enjoy!
+    </string>
+    <string name="ok">Got it!</string>
 </resources>
